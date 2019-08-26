@@ -48,6 +48,11 @@ import type {
   ValueNode,
 } from 'graphql';
 
+import {
+  flatMap,
+  uniq
+} from './util';
+
 type Field = GraphQLField<any, any>;
 
 type GetDefaultScalarArgValue = (
@@ -66,6 +71,7 @@ type Props = {
   width?: number,
   schema?: ?GraphQLSchema,
   onEdit: string => void,
+  onClickDocsLink: object => void,
   getDefaultFieldNames?: ?(type: GraphQLObjectType) => Array<string>,
   getDefaultScalarArgValue?: ?GetDefaultScalarArgValue,
   makeDefaultArg?: ?MakeDefaultArg,
@@ -81,7 +87,6 @@ type Selections = $ReadOnlyArray<SelectionNode>;
 
 function defaultGetDefaultFieldNames(type: GraphQLObjectType): Array<string> {
   const fields = type.getFields();
-
   // Is there an `id` field?
   if (fields['id']) {
     let res = ['id'];
@@ -153,6 +158,20 @@ function coerceArgValue(
           return {
             kind: 'FloatValue',
             value: String(argType.parseValue(parseFloat(value))),
+          };
+        case 'Seconds':
+        case 'EpochMilliseconds':
+        case 'EpochSeconds':
+        case 'Milliseconds':
+        case 'Minutes':
+          let intValue = parseInt(value);
+          if (isNaN(intValue)){
+            value = ""
+            throw "Not a number"
+          };
+          return {
+            kind: 'IntValue',
+            value: String(intValue),
           };
         case 'Int':
           return {
@@ -672,6 +691,7 @@ type AbstractViewProps = {|
   implementingType: GraphQLObjectType,
   selections: Selections,
   modifySelections: (selections: Selections) => void,
+  onClickDocsLink: (type: object) => void,
   schema: GraphQLSchema,
   getDefaultFieldNames: (type: GraphQLObjectType) => Array<string>,
   getDefaultScalarArgValue: GetDefaultScalarArgValue,
@@ -746,6 +766,10 @@ class AbstractView extends React.PureComponent<AbstractViewProps, {}> {
     );
   };
 
+  _onClickDocsLink = (type) => {
+    this.props.onClickDocsLink && this.props.onClickDocsLink(type)
+  }
+
   render() {
     const {implementingType, schema, getDefaultFieldNames} = this.props;
     const selection = this._getSelection();
@@ -756,14 +780,27 @@ class AbstractView extends React.PureComponent<AbstractViewProps, {}> {
         : []
       : [];
     return (
-      <div>
+      <div className='graphiql-explorer-node'>
         <span
           style={{cursor: 'pointer'}}
           onClick={selection ? this._removeFragment : this._addFragment}>
           <input readOnly type="checkbox" checked={!!selection} />
-          <span style={{color: '#CA9800'}}>
-            {this.props.implementingType.name}
-          </span>
+          <span style={{color: '#CA9800'}}>{this.props.implementingType.name} </span>
+        </span>
+        <span
+          className='graphiql-explorer-click-docs'
+          style={{cursor: 'pointer'}}
+          onClick={() => {this._onClickDocsLink(implementingType)}}>
+           <svg width="13px" height="13px" viewBox="0 1 20 13" version="1.1">
+              <title>Go to documentation</title>
+              <defs></defs>
+              <g id="Icons" stroke="none">
+                  <g id="Icon/search-no-circle" fill="#000000">
+                      <path d="M11.2197212,11.8170545 C10.2786094,12.6498117 9.04855728,13.1573333 7.696,13.1573333 L7.696,13.1573333 C4.70933333,13.1573333 2.32,10.6826667 2.32,7.696 C2.32,4.70933333 4.70933333,2.32 7.696,2.32 C10.6826667,2.32 13.072,4.70933333 13.072,7.696 C13.072,9.02686119 12.5975737,10.2560596 11.8072747,11.2099413 L17.5946667,16.9973333 C17.7653333,17.168 17.7653333,17.424 17.5946667,17.5946667 C17.5093333,17.68 17.3386667,17.68 17.2533333,17.68 C17.168,17.68 17.0826667,17.68 16.9973333,17.5946667 L11.2197212,11.8170545 Z M7.696,3.088 C5.136,3.088 3.088,5.136 3.088,7.696 C3.088,10.256 5.136,12.304 7.696,12.304 C10.256,12.304 12.304,10.256 12.304,7.696 C12.304,5.136 10.256,3.088 7.696,3.088 Z" id="search-no-circle"></path>
+                  </g>
+                  <g id="Docs" transform="translate(-1829.000000, -388.000000)"></g>
+              </g>
+          </svg>
         </span>
         {selection ? (
           <div style={{marginLeft: 16}}>
@@ -775,6 +812,7 @@ class AbstractView extends React.PureComponent<AbstractViewProps, {}> {
                   field={fields[fieldName]}
                   selections={childSelections}
                   modifySelections={this._modifyChildSelections}
+                  onClickDocsLink={this.props.onClickDocsLink}
                   schema={schema}
                   getDefaultFieldNames={getDefaultFieldNames}
                   getDefaultScalarArgValue={this.props.getDefaultScalarArgValue}
@@ -796,6 +834,7 @@ type FieldViewProps = {|
   getDefaultFieldNames: (type: GraphQLObjectType) => Array<string>,
   getDefaultScalarArgValue: GetDefaultScalarArgValue,
   makeDefaultArg: ?MakeDefaultArg,
+  onClickDocsLink: (field: object) => void,
 |};
 
 function defaultInputObjectFields(
@@ -965,6 +1004,44 @@ class FieldView extends React.PureComponent<FieldViewProps, {}> {
     );
   };
 
+  _onClickDocsLink = (field) => {
+    this.props.onClickDocsLink && this.props.onClickDocsLink(field)
+  }
+
+  _renderInterfacesAndConcreteTypes(parentType, childSelections) {
+    const {
+      schema,
+      getDefaultFieldNames,
+      getDefaultScalarArgValue,
+      makeDefaultArg
+    } = this.props;
+
+    const possibleConcreteTypes = schema.getPossibleTypes(parentType)
+
+    const interfaces = uniq(
+      flatMap(possibleConcreteTypes, (concreteType) => {
+        return concreteType.getInterfaces()
+      }),
+      (interfaceType) => interfaceType.name)
+
+    let interfacesAndConcreteTypes = possibleConcreteTypes
+      .concat(interfaces)
+      .filter((type) => type.name !== parentType.name)
+
+    return interfacesAndConcreteTypes.map(type => (
+      <AbstractView
+        key={type.name}
+        implementingType={type}
+        selections={childSelections}
+        modifySelections={this._modifyChildSelections}
+        schema={schema}
+        getDefaultFieldNames={getDefaultFieldNames}
+        getDefaultScalarArgValue={getDefaultScalarArgValue}
+        makeDefaultArg={makeDefaultArg}
+        onClickDocsLink={this._onClickDocsLink}
+      />))
+  }
+
   render() {
     const {field, schema, getDefaultFieldNames} = this.props;
     const selection = this._getSelection();
@@ -983,7 +1060,22 @@ class FieldView extends React.PureComponent<FieldViewProps, {}> {
               : this._addFieldToSelections
           }>
           <input readOnly type="checkbox" checked={!!selection} />
-          <span style={{color: 'rgb(31, 97, 160)'}}>{field.name}</span>
+          <span style={{color: 'rgb(31, 97, 160)'}}>{field.name} </span>
+        </span>
+        <span
+          className='graphiql-explorer-click-docs'
+          style={{cursor: 'pointer'}}
+          onClick={() => {this._onClickDocsLink(field)}}>
+           <svg width="13px" height="13px" viewBox="0 1 20 13" version="1.1">
+              <title>Go to documentation</title>
+              <defs></defs>
+              <g id="Icons" stroke="none">
+                  <g id="Icon/search-no-circle" fill="#000000">
+                      <path d="M11.2197212,11.8170545 C10.2786094,12.6498117 9.04855728,13.1573333 7.696,13.1573333 L7.696,13.1573333 C4.70933333,13.1573333 2.32,10.6826667 2.32,7.696 C2.32,4.70933333 4.70933333,2.32 7.696,2.32 C10.6826667,2.32 13.072,4.70933333 13.072,7.696 C13.072,9.02686119 12.5975737,10.2560596 11.8072747,11.2099413 L17.5946667,16.9973333 C17.7653333,17.168 17.7653333,17.424 17.5946667,17.5946667 C17.5093333,17.68 17.3386667,17.68 17.2533333,17.68 C17.168,17.68 17.0826667,17.68 16.9973333,17.5946667 L11.2197212,11.8170545 Z M7.696,3.088 C5.136,3.088 3.088,5.136 3.088,7.696 C3.088,10.256 5.136,12.304 7.696,12.304 C10.256,12.304 12.304,10.256 12.304,7.696 C12.304,5.136 10.256,3.088 7.696,3.088 Z" id="search-no-circle"></path>
+                  </g>
+                  <g id="Docs" transform="translate(-1829.000000, -388.000000)"></g>
+              </g>
+          </svg>
         </span>
         {selection && args.length ? (
           <div style={{marginLeft: 16}}>
@@ -1026,28 +1118,14 @@ class FieldView extends React.PureComponent<FieldViewProps, {}> {
                   selections={childSelections}
                   modifySelections={this._modifyChildSelections}
                   schema={schema}
+                  onClickDocsLink={this._onClickDocsLink}
                   getDefaultFieldNames={getDefaultFieldNames}
                   getDefaultScalarArgValue={this.props.getDefaultScalarArgValue}
                   makeDefaultArg={this.props.makeDefaultArg}
                 />
               ))}
             {isInterfaceType(type) || isUnionType(type)
-              ? schema
-                  .getPossibleTypes(type)
-                  .map(type => (
-                    <AbstractView
-                      key={type.name}
-                      implementingType={type}
-                      selections={childSelections}
-                      modifySelections={this._modifyChildSelections}
-                      schema={schema}
-                      getDefaultFieldNames={getDefaultFieldNames}
-                      getDefaultScalarArgValue={
-                        this.props.getDefaultScalarArgValue
-                      }
-                      makeDefaultArg={this.props.makeDefaultArg}
-                    />
-                  ))
+              ? this._renderInterfacesAndConcreteTypes(type, childSelections)
               : null}
           </div>
         </div>
@@ -1103,6 +1181,7 @@ type RootViewProps = {|
   getDefaultFieldNames: (type: GraphQLObjectType) => Array<string>,
   getDefaultScalarArgValue: GetDefaultScalarArgValue,
   makeDefaultArg: ?MakeDefaultArg,
+  onClickDocsLink: (field: object) => void,
 |};
 
 class RootView extends React.PureComponent<RootViewProps, {}> {
@@ -1180,6 +1259,7 @@ class RootView extends React.PureComponent<RootViewProps, {}> {
       parsedQuery,
       schema,
       getDefaultFieldNames,
+      onClickDocsLink
     } = this.props;
     const operationDef = this._getOperationDef(parsedQuery);
     const selections = operationDef.selectionSet.selections;
@@ -1199,6 +1279,7 @@ class RootView extends React.PureComponent<RootViewProps, {}> {
               field={fields[fieldName]}
               selections={selections}
               modifySelections={this._modifySelections}
+              onClickDocsLink={onClickDocsLink}
               schema={schema}
               getDefaultFieldNames={getDefaultFieldNames}
               getDefaultScalarArgValue={this.props.getDefaultScalarArgValue}
@@ -1226,14 +1307,16 @@ class Explorer extends React.PureComponent<Props, State> {
   componentDidMount() {
     this._resetScroll();
   }
-  _onEdit = (query: string): void => this.props.onEdit(query);
+  _onEdit = (query: string): void => {
+    this.props.onEdit(query)
+  };
 
   render() {
-    const {schema, query, makeDefaultArg} = this.props;
+    const {schema, query, makeDefaultArg, onClickDocsLink} = this.props;
     if (!schema) {
       return (
         <div style={{fontFamily: 'sans-serif'}} className="error-container">
-          No Schema Available
+          Loading GraphQL Schema
         </div>
       );
     }
@@ -1275,6 +1358,7 @@ class Explorer extends React.PureComponent<Props, State> {
             operation="query"
             parsedQuery={parsedQuery}
             onEdit={this._onEdit}
+            onClickDocsLink={onClickDocsLink}
             schema={schema}
             getDefaultFieldNames={getDefaultFieldNames}
             getDefaultScalarArgValue={getDefaultScalarArgValue}
@@ -1287,6 +1371,7 @@ class Explorer extends React.PureComponent<Props, State> {
             operation="mutation"
             parsedQuery={parsedQuery}
             onEdit={this._onEdit}
+            onClickDocsLink={onClickDocsLink}
             schema={schema}
             getDefaultFieldNames={getDefaultFieldNames}
             getDefaultScalarArgValue={getDefaultScalarArgValue}
@@ -1299,6 +1384,7 @@ class Explorer extends React.PureComponent<Props, State> {
             operation="subscription"
             parsedQuery={parsedQuery}
             onEdit={this._onEdit}
+            onClickDocsLink={onClickDocsLink}
             schema={schema}
             getDefaultFieldNames={getDefaultFieldNames}
             getDefaultScalarArgValue={getDefaultScalarArgValue}
@@ -1344,6 +1430,7 @@ class ExplorerWrapper extends React.PureComponent<Props, {}> {
     width: 380,
   };
   render() {
+
     return (
       <div
         className="historyPaneWrap"
@@ -1354,14 +1441,7 @@ class ExplorerWrapper extends React.PureComponent<Props, {}> {
           display: this.props.explorerIsOpen ? 'block' : 'none',
         }}>
         <div className="history-title-bar">
-          <div className="history-title">Explorer</div>
-          <div className="doc-explorer-rhs">
-            <div
-              className="docExplorerHide"
-              onClick={this.props.onToggleExplorer}>
-              {'\u2715'}
-            </div>
-          </div>
+          <div className="history-title">Query Builder</div>
         </div>
         <div className="history-contents">
           <ErrorBoundary>
