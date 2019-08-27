@@ -551,7 +551,6 @@ class ScalarInput extends React.PureComponent<ScalarInputProps, {}> {
       activeElement &&
       !(activeElement instanceof HTMLTextAreaElement)
     ) {
-      input.focus();
       input.setSelectionRange(0, input.value.length);
     }
   }

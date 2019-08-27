@@ -469,7 +469,6 @@ var ScalarInput = function (_React$PureComponent3) {
       var input = this._ref;
       var activeElement = document.activeElement;
       if (input && activeElement && !(activeElement instanceof HTMLTextAreaElement)) {
-        input.focus();
         input.setSelectionRange(0, input.value.length);
       }
     }
